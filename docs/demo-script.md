@@ -1,0 +1,28 @@
+# Five-minute demo script
+
+## Recording plan
+
+**0:00-0:25 | Problem and design**  
+“Amrutam needs a secure backend for 100,000 daily consultations, under-200 ms read and under-500 ms write p95 targets, and 99.95% availability. The design uses a stateless API, PostgreSQL as source of truth, Redis for ephemeral controls, and async extension points.” Show the architecture diagram.
+
+**0:25-1:10 | Contracts and data model**  
+Show `api/openapi.yaml`, then the ER diagram in `docs/architecture.md` and `database/schema.sql`. Point out state checks, indexes, and unique slot/idempotency constraints.
+
+**1:10-2:20 | Identity and booking**  
+Open `/docs`. Register a patient, log in, and copy the bearer token. Search doctors and availability. Book a slot with `Idempotency-Key: demo-booking-001`; repeat the request and show the replay. Explain row lock + transaction + unique constraints prevent double booking.
+
+**2:20-3:15 | Consultation and prescription**  
+With a locally provisioned synthetic doctor/admin account, transition the consultation to `in_progress`, create a prescription, and show authorized access. Explain lifecycle checks and patient/assigned-doctor/admin authorization with audit events.
+
+**3:15-4:05 | Operations and security**  
+Show `/health/ready`, `/metrics`, request ID header, and JSON log output. Point out container hardening and CI dependency scan. MFA, managed keys and production encryption are rollout gates; use no patient data in the demo.
+
+**4:05-5:00 | Scale and tradeoffs**  
+“Booking writes remain strongly consistent in Postgres. Search is bounded and cacheable; analytics can move to a replica or warehouse. Notifications and payments use an outbox/saga so provider outages do not hold database transactions open. We partition after measured growth, and restore-test encrypted PITR backups against five-minute RPO and one-hour RTO.” Close with implemented scope and next production-hardening steps.
+
+## Before recording
+
+- Start the local stack and use synthetic records only.
+- Keep API docs and architecture diagram ready; hide secrets and `.env`.
+- Prepare local synthetic doctor/admin accounts; never submit a privileged bootstrap secret.
+- Follow the script and label integrations that remain rollout work accurately.
