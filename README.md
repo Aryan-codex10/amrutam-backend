@@ -9,7 +9,9 @@ A backend reference implementation for identity, doctor availability, consultati
 3. Visit `http://localhost:8000/docs`; health checks are `/health/live` and `/health/ready`.
 4. `database/schema.sql` is the production data-model target, not a ready-to-apply migration for the demo ORM. Before production, add versioned migrations and align ORM mappings plus the PHI encryption adapter. The demo creates its own development tables at startup only in development.
 
-For a local admin account, stop the API after its first startup, set `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` (16+ characters) in the environment, run `python scripts/bootstrap_admin.py`, then unset both values and restart. This command refuses to create a second admin. An admin can provision a doctor via `POST /api/v1/admin/doctors`; doctor credentials are bcrypt-hashed at creation.
+The demo seed creates a ready-to-use admin, so you do not need the bootstrap command for the video walkthrough. To create your own first admin instead, start the API/database, set `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` (16+ characters) in PowerShell, then run the script inside the API container with `docker compose exec -e "BOOTSTRAP_ADMIN_EMAIL=$env:BOOTSTRAP_ADMIN_EMAIL" -e "BOOTSTRAP_ADMIN_PASSWORD=$env:BOOTSTRAP_ADMIN_PASSWORD" api python scripts/bootstrap_admin.py`. Unset both environment variables afterward. It refuses to create a second admin. An admin can provision doctors via `POST /api/v1/admin/doctors`.
+
+For the complete local demo dataset, with the API and database running, run `docker compose exec api python scripts/seed_demo.py --confirm`. This adds 20 synthetic accounts plus availability, consultations, and prescriptions. Demo logins are listed in `docs/demo-seed-accounts.md`. The script requires `APP_ENV=development`, is safe to re-run, and does not remove or reset records. If you already created a separate bootstrap admin, that user is additional to the 20 seeded users.
 
 ## Key paths
 
@@ -19,6 +21,7 @@ For a local admin account, stop the API after its first startup, set `BOOTSTRAP_
 - `docs/security-threat-model.md` - threat model, data classification, controls
 - `docs/operations.md` - API management, observability, delivery and recovery
 - `docs/demo-script.md` - five-minute walkthrough and recording cues
+- `docs/demo-seed-accounts.md` - local demo users and passwords
 - `infra/` - CI pipeline and deployment notes
 
 ## Scope notes
