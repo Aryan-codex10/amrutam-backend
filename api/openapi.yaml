@@ -45,7 +45,13 @@ paths:
         - {in: query, name: from_at, required: true, schema: {type: string, format: date-time}}
         - {in: query, name: to_at, required: true, schema: {type: string, format: date-time}}
       responses: {'200': {description: Available slots}}
-    post: {summary: Publish slot, security: [{bearerAuth: []}], responses: {'201': {description: Slot created}}}
+    post:
+      summary: Publish a doctor availability slot
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/Slot'}}}
+      responses: {'201': {description: Slot created}, '403': {description: Wrong role or doctor}}
   /api/v1/consultations:
     get: {summary: List consultations scoped to caller, security: [{bearerAuth: []}], responses: {'200': {description: Consultations}}}
     post:
@@ -53,14 +59,35 @@ paths:
       security: [{bearerAuth: []}]
       parameters:
         - {in: header, name: Idempotency-Key, required: true, schema: {type: string, maxLength: 128}}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/Booking'}}}
       responses: {'201': {description: Booked}, '409': {description: Slot conflict}}
   /api/v1/consultations/{consultation_id}/status:
-    patch: {summary: Change lifecycle state, security: [{bearerAuth: []}], responses: {'200': {description: Updated}, '409': {description: Invalid transition}}}
+    patch:
+      summary: Change lifecycle state
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}
+      responses: {'200': {description: Updated}, '409': {description: Invalid transition}}
   /api/v1/consultations/{consultation_id}/prescriptions:
     get: {summary: Read prescriptions with patient/doctor authorization, security: [{bearerAuth: []}], responses: {'200': {description: Prescriptions}}}
-    post: {summary: Create prescription, security: [{bearerAuth: []}], responses: {'201': {description: Created}}}
+    post:
+      summary: Create prescription
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/Prescription'}}}
+      responses: {'201': {description: Created}}
   /api/v1/admin/doctors:
-    post: {summary: Admin creates doctor profile, security: [{bearerAuth: []}], responses: {'201': {description: Created}}}
+    post:
+      summary: Admin provisions doctor account and profile
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/Doctor'}}}
+      responses: {'201': {description: Created}}
   /api/v1/admin/analytics:
     get: {summary: Aggregated admin metrics, security: [{bearerAuth: []}], responses: {'200': {description: Metrics}}}
   /metrics:
@@ -82,3 +109,33 @@ components:
       properties:
         email: {type: string, format: email}
         password: {type: string}
+    Doctor:
+      type: object
+      required: [email, password, display_name, specialty]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, minLength: 12, maxLength: 72}
+        display_name: {type: string, minLength: 2, maxLength: 160}
+        specialty: {type: string, minLength: 2, maxLength: 120}
+    Slot:
+      type: object
+      required: [starts_at, ends_at]
+      properties:
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+    Booking:
+      type: object
+      required: [slot_id, reason]
+      properties:
+        slot_id: {type: string}
+        reason: {type: string, minLength: 3, maxLength: 500}
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string, enum: [in_progress, completed, cancelled]}
+    Prescription:
+      type: object
+      required: [body]
+      properties:
+        body: {type: string, minLength: 2, maxLength: 10000}
