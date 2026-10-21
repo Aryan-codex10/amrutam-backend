@@ -9,10 +9,10 @@
 Show `api/openapi.yaml`, then the ER diagram in `docs/architecture.md` and `database/schema.sql`. Briefly show `infra/terraform` as the AWS infrastructure-as-code reference. Point out state checks, indexes, and unique slot/idempotency constraints.
 
 **1:10-2:20 | Identity and booking**  
-Open `/docs`. Register a patient, log in, and copy the bearer token. Search doctors and availability. Book a slot with `Idempotency-Key: demo-booking-001`; repeat the request and show the replay. Explain row lock + transaction + unique constraints prevent double booking.
+Show the patient portal at `http://localhost:3000`: browse doctors, inspect availability, sign in, and book a slot. Then open `/docs`, show the same REST contract, and repeat a booking with the same `Idempotency-Key` to demonstrate replay. Explain row lock + transaction + unique constraints prevent double booking.
 
 **2:20-3:15 | Consultation and prescription**  
-Log in as `doctor01.demo@example.com` with the shared demo password and the current code from `docker compose exec api python scripts/demo_totp.py doctor01.demo@example.com`. Transition a consultation to `in_progress`, create a prescription, and show authorized access. Explain lifecycle checks and patient/assigned-doctor/admin authorization with audit events.
+Log in as `doctor01.demo@example.com` with the shared demo password and the current code from `docker compose exec api node backend/dist/scripts/demo-totp.js doctor01.demo@example.com`. Transition a consultation to `in_progress`, create a prescription, and show authorized access. Explain lifecycle checks and patient/assigned-doctor/admin authorization with audit events.
 
 **3:15-4:05 | Operations and security**  
 Show `/health/ready`, `/metrics`, request ID header, and JSON log output. Point out container hardening, CI dependency/Terraform checks, TOTP MFA and replay rejection, and encrypted email/clinical fields. Explain that Terraform describes an AWS deployment but has not been applied, and that production key custody belongs in managed KMS/HSM; use no patient data in the demo.

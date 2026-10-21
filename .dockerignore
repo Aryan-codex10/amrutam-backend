@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/*.py[cod]
+requirements*.txt
+infra/terraform/.terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example

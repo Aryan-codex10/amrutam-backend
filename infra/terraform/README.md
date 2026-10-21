@@ -41,4 +41,4 @@ GitHub Actions runs the same format and validation checks and builds the API con
 6. Apply the reviewed, versioned database migrations before shifting production traffic. The repository's convenience migration script is development-only and must not be used as a production migration process.
 7. Verify `/health/ready`, `/metrics` access restrictions, WAF behavior, CloudWatch logs/alarms, database backups, and rollback behavior.
 
-The SQLAlchemy application creates tables automatically only in development mode. Production schema changes need a separately reviewed migration job and release sequence.
+The Node.js API does not create production tables during startup. Fresh local databases and the prior demo schema use the explicit, development-only encryption migration script documented in the root README. Production schema changes need a separately reviewed versioned migration job and release sequence.

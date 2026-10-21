@@ -4,12 +4,20 @@ services:
     env_file: .env
     ports: ["8000:8000"]
     depends_on:
-      db: {condition: service_healthy}
-      redis: {condition: service_healthy}
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    restart: unless-stopped
+  web:
+    build: ./frontend
+    ports: ["3000:3000"]
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    depends_on:
+      api: { condition: service_started }
     restart: unless-stopped
   db:
     image: postgres:16-alpine
@@ -25,9 +33,32 @@ services:
       retries: 10
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "128mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  test-db:
+    image: postgres:16-alpine
+    profiles: [testing]
+    environment:
+      POSTGRES_DB: amrutam_test
+      POSTGRES_USER: amrutam_test
+      POSTGRES_PASSWORD: test_only_local
+    ports: ["5433:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amrutam_test -d amrutam_test"]
       interval: 5s
       timeout: 3s
       retries: 10

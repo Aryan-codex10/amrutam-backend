@@ -1,4 +1,4 @@
--- PostgreSQL 16 production target. It matches src/app/main.py model columns.
+-- PostgreSQL 16 target. It matches the TypeScript backend data model.
 -- PII/PHI bytes are Fernet tokens written by EncryptedText. Keep keys in KMS/secret manager.
 CREATE TABLE users (
     id varchar(36) PRIMARY KEY,

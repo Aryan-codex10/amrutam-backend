@@ -1,0 +1,17 @@
+{
+  "name": "amrutam-telemedicine",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "test": "npm --prefix backend test",
+    "dev:api": "npm --prefix backend run dev",
+    "dev:web": "npm --prefix frontend run dev",
+    "audit:backend": "npm --prefix backend audit --omit=dev",
+    "audit:frontend": "npm --prefix frontend audit --omit=dev"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  }
+}
