@@ -8,6 +8,8 @@ Run the seed script only against a local development database. It creates 20 syn
 | Doctor | `doctor01.demo@example.com` through `doctor05.demo@example.com` | `Demo-Doctor-2026!` |
 | Patient | `patient01.demo@example.com` through `patient14.demo@example.com` | `Demo-Patient-2026!` |
 
-Use `POST /api/v1/auth/login` to get a bearer token, then authorize the role's requests in `/docs`. Passwords are deliberately public demo credentials: never use them outside a local synthetic-data environment.
+Patient accounts log in with `email` and `password`. Seeded admin and doctor accounts also require a current six-digit TOTP code. To print the current local demo code, run `docker compose exec api python scripts/demo_totp.py admin.demo@example.com` or pass one of the doctor emails. Submit it as `totp_code` in `POST /api/v1/auth/login`. Codes change every 30 seconds; rerun the command if one expires. Then authorize requests in `/docs` with the returned bearer token.
+
+Passwords and TOTP secrets are deliberately public demo credentials: never use these accounts outside a local synthetic-data environment. The seed TOTP secret is deterministically derived from the public demo email solely to make a short recording easier. Real accounts should enroll a private authenticator secret through `/api/v1/auth/mfa/setup` and `/api/v1/auth/mfa/verify`.
 
 The script uses stable IDs and email addresses. Re-running it skips existing users and creates missing related seed records without duplicating the fixed sample appointments. It does not delete or reset existing data. If you already created a separate admin with the bootstrap script, that account remains in addition to these 20 demo accounts.

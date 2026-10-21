@@ -27,7 +27,17 @@ paths:
         content:
           application/json:
             schema: {$ref: '#/components/schemas/Login'}
-      responses: {'200': {description: Bearer access token}, '401': {description: Invalid credentials}}
+      responses: {'200': {description: Bearer access token; privileged roles must include a valid TOTP code}, '401': {description: Invalid credentials or MFA code}}
+  /api/v1/auth/mfa/setup:
+    post: {summary: Begin TOTP enrollment for doctor/admin, security: [{bearerAuth: []}], responses: {'200': {description: Secret and authenticator provisioning URI}}}
+  /api/v1/auth/mfa/verify:
+    post:
+      summary: Verify TOTP and enable MFA for doctor/admin
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/MfaVerify'}}}
+      responses: {'200': {description: MFA enabled}, '400': {description: Invalid code}}
   /api/v1/doctors:
     get:
       summary: Search doctors
@@ -109,6 +119,12 @@ components:
       properties:
         email: {type: string, format: email}
         password: {type: string}
+        totp_code: {type: string, pattern: '^[0-9]{6}$', description: Required after MFA has been enabled for an admin or doctor}
+    MfaVerify:
+      type: object
+      required: [totp_code]
+      properties:
+        totp_code: {type: string, pattern: '^[0-9]{6}$'}
     Doctor:
       type: object
       required: [email, password, display_name, specialty]

@@ -9,7 +9,7 @@
 
 ## API management
 
-Version routes under `/api/v1`; publish OpenAPI; use gateway for TLS, WAF, request size/time limits, quotas and access logs. Authenticate with short-lived bearer tokens. Combine RBAC with resource ownership. Require `Idempotency-Key` on booking. Keep errors stable and avoid leaking internals. Cap pagination at 100. Announce deprecation windows and use telemetry to track old versions. Restrict `/metrics` to internal scrape networks.
+Version routes under `/api/v1`; publish OpenAPI; use gateway for TLS, WAF, request size/time limits, quotas and access logs. Authenticate with short-lived bearer tokens. Privileged API routes require TOTP MFA; enrollment is through the setup and verify endpoints. Combine RBAC with resource ownership. Require `Idempotency-Key` on booking. Keep errors stable and avoid leaking internals. Cap pagination at 100. Announce deprecation windows and use telemetry to track old versions. Restrict `/metrics` to internal scrape networks.
 
 ## Retry and asynchronous work
 
@@ -17,6 +17,6 @@ Retry only transient failures (timeouts, 429 honoring `Retry-After`, selected 5x
 
 ## Deployment and recovery
 
-CI validates compilation, tests, dependencies, and container, and produces an SBOM in a release pipeline. Promote immutable images through staging then production with health-gated rolling/canary deployment and rollback on SLO regression. Schema changes follow expand-migrate-contract. Inject credentials through a secret manager. IaC should define private network, multi-zone managed PostgreSQL, Redis, gateway/WAF, workload identity, encrypted storage, backups, dashboards and alerts.
+CI validates Python compilation, workflow tests, dependencies, the API container build, and Terraform formatting/schema. The AWS Terraform reference defines private networking, multi-zone PostgreSQL and Redis, ECS Fargate, ALB/WAF, KMS/Secrets Manager, autoscaling, and CloudWatch alarms/logs. It is not automatically applied or deployed by CI. A release pipeline should promote immutable images through staging then production with health-gated rolling/canary deployment, rollback on SLO regression, and an SBOM. Schema changes follow expand-migrate-contract. Inject credentials through a secret manager.
 
 Use encrypted daily snapshots plus continuous WAL/PITR, with keys separate from the database. Restore quarterly into isolation. Proposed RPO <=5m / RTO <=60m. Document failover authority, write fencing, DNS/connection change, reconciliation, and stakeholder updates.

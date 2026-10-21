@@ -58,7 +58,7 @@ erDiagram
  PRESCRIPTIONS { uuid id PK; uuid consultation_id FK; bytea body_ciphertext }
 ```
 
-The full normalized production data model, checks, indexes, and deduplication constraints are in `../database/schema.sql`. It is a target model, not an executable migration for the demo ORM. The demo uses plaintext ORM text fields to remain locally runnable; the production model uses ciphertext columns. Do not use real health data until migrations, ORM mappings, and an approved envelope-encryption adapter are implemented and tested.
+The full normalized data model, checks, indexes, and deduplication constraints are in `../database/schema.sql`; it matches the ORM columns for fresh databases. Email, consultation reasons, prescriptions, profile contact fields, and MFA secrets are encrypted by a SQLAlchemy type before storage. Email login and duplicate checks use a separate keyed HMAC digest. Development has a fixed key for synthetic data; production requires configured keys, which must live in a secret manager or KMS. Do not use real health data with development keys.
 
 ## 4. Capacity, latency, and resilience
 

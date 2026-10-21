@@ -12,6 +12,7 @@ import bcrypt
 from sqlalchemy import func, select
 
 from src.app.main import Base, Consultation, Doctor, Prescription, SessionLocal, Slot, User, engine
+from src.app.security import demo_totp_secret, email_lookup_hash
 
 NAMESPACE = uuid.UUID("24d9bc4f-fb1e-4f93-b077-7c152b5ecb4a")
 ADMIN_EMAIL = "admin.demo@example.com"
@@ -32,10 +33,13 @@ def stable_id(kind: str) -> str:
 
 
 def get_or_create_user(session, email: str, role: str, password: str) -> tuple[User, bool]:
-    user = session.scalar(select(User).where(User.email == email))
+    user = session.scalar(select(User).where(User.email_lookup_hash == email_lookup_hash(email)))
     if user:
         if user.role != role:
             raise RuntimeError(f"{email} exists with role={user.role}; expected role={role}")
+        if role in ("doctor", "admin") and not user.mfa_enabled:
+            user.mfa_secret = demo_totp_secret(email)
+            user.mfa_enabled = True
         return user, False
     user = User(
         id=stable_id(f"user:{email}"),
@@ -44,6 +48,9 @@ def get_or_create_user(session, email: str, role: str, password: str) -> tuple[U
         role=role,
         is_active=True,
     )
+    if role in ("doctor", "admin"):
+        user.mfa_secret = demo_totp_secret(email)
+        user.mfa_enabled = True
     session.add(user)
     session.flush()
     return user, True

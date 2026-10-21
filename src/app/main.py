@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import uuid
+from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -16,9 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field
 from redis import Redis
-from sqlalchemy import (Boolean, DateTime, ForeignKey, Integer, String, Text,
-                        UniqueConstraint, create_engine, func, select)
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy import (BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey,
+                        Integer, String, Text, UniqueConstraint, create_engine,
+                        func, select)
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker, validates
+from .security import EncryptedText, email_lookup_hash, new_totp_secret, require_production_keys, verify_totp
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local.db")
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, **({} if DATABASE_URL.startswith("sqlite") else {"pool_size": 10, "max_overflow": 20}))
@@ -36,12 +39,30 @@ class Base(DeclarativeBase): pass
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (CheckConstraint("role IN ('patient','doctor','admin')", name="ck_users_role"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    email: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    email_lookup_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(100))
     role: Mapped[str] = mapped_column(String(20), default="patient")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    mfa_secret: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    mfa_last_counter: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    @validates("email")
+    def normalize_email(self, key, value):
+        normalized = str(value).strip().lower()
+        self.email_lookup_hash = email_lookup_hash(normalized)
+        return normalized
+
+class Profile(Base):
+    __tablename__ = "profiles"
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    full_name: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    phone_ciphertext: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
+    date_of_birth_ciphertext: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
 
 class Doctor(Base):
     __tablename__ = "doctors"
@@ -53,7 +74,11 @@ class Doctor(Base):
 
 class Slot(Base):
     __tablename__ = "availability_slots"
-    __table_args__ = (UniqueConstraint("doctor_id", "starts_at", name="uq_doctor_slot_start"),)
+    __table_args__ = (
+        UniqueConstraint("doctor_id", "starts_at", name="uq_doctor_slot_start"),
+        CheckConstraint("status IN ('available','booked','blocked')", name="ck_slots_status"),
+        CheckConstraint("ends_at > starts_at", name="ck_slots_time"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"), index=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -62,14 +87,17 @@ class Slot(Base):
 
 class Consultation(Base):
     __tablename__ = "consultations"
-    __table_args__ = (UniqueConstraint("patient_id", "idempotency_key", name="uq_booking_idempotency"),)
+    __table_args__ = (
+        UniqueConstraint("patient_id", "idempotency_key", name="uq_booking_idempotency"),
+        CheckConstraint("status IN ('booked','in_progress','completed','cancelled')", name="ck_consultations_status"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     patient_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"), index=True)
     slot_id: Mapped[str] = mapped_column(ForeignKey("availability_slots.id"), unique=True)
     status: Mapped[str] = mapped_column(String(24), default="booked", index=True)
     idempotency_key: Mapped[str] = mapped_column(String(128))
-    reason: Mapped[str] = mapped_column(String(500))
+    reason: Mapped[str] = mapped_column(EncryptedText())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 class Prescription(Base):
@@ -77,7 +105,7 @@ class Prescription(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     consultation_id: Mapped[str] = mapped_column(ForeignKey("consultations.id"), index=True)
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
-    body: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(EncryptedText())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class AuditLog(Base):
@@ -91,20 +119,35 @@ class AuditLog(Base):
     request_id: Mapped[str] = mapped_column(String(64))
     outcome: Mapped[str] = mapped_column(String(20), default="success")
 
+class Payment(Base):
+    __tablename__ = "payments"
+    __table_args__ = (
+        CheckConstraint("amount_minor >= 0", name="ck_payments_amount"),
+        CheckConstraint("status IN ('pending','authorized','captured','refunded','failed')", name="ck_payments_status"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    consultation_id: Mapped[str] = mapped_column(ForeignKey("consultations.id"), unique=True)
+    provider_ref: Mapped[Optional[str]] = mapped_column(String(160), unique=True, nullable=True)
+    amount_minor: Mapped[int] = mapped_column(BigInteger)
+    currency: Mapped[str] = mapped_column(String(3))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=12, max_length=72)
     role: str = "patient"
-class LoginIn(BaseModel): email: EmailStr; password: str = Field(min_length=1, max_length=72)
+class LoginIn(BaseModel): email: EmailStr; password: str = Field(min_length=1, max_length=72); totp_code: Optional[str] = Field(default=None, pattern=r"^\d{6}$")
 class DoctorIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=12, max_length=72)
     display_name: str = Field(min_length=2, max_length=160)
     specialty: str = Field(min_length=2, max_length=120)
 class SlotIn(BaseModel): starts_at: datetime; ends_at: datetime
 class BookingIn(BaseModel): slot_id: str; reason: str = Field(min_length=3, max_length=500)
 class StatusIn(BaseModel): status: str
 class PrescriptionIn(BaseModel): body: str = Field(min_length=2, max_length=10000)
+class MfaVerifyIn(BaseModel): totp_code: str = Field(pattern=r"^\d{6}$")
 
 app = FastAPI(title="Amrutam Telemedicine API", version="1.0.0", description="Secure telemedicine workflow reference API")
 app.add_middleware(CORSMiddleware, allow_origins=[x for x in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if x], allow_credentials=False, allow_methods=["GET", "POST", "PATCH"], allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"])
@@ -152,15 +195,57 @@ def current_user(credentials: HTTPAuthorizationCredentials = Depends(security), 
 def roles(*allowed):
     def check(user: User = Depends(current_user)):
         if user.role not in allowed: raise HTTPException(403, "Insufficient role")
+        if user.role in ("doctor", "admin") and not user.mfa_enabled:
+            raise HTTPException(403, "MFA enrollment required")
         return user
     return check
+
+def require_privileged_mfa(user: User):
+    if user.role in ("doctor", "admin") and not user.mfa_enabled:
+        raise HTTPException(403, "MFA enrollment required")
+
+@app.post("/api/v1/auth/mfa/setup")
+def setup_mfa(request: Request, session: Session = Depends(db), user: User = Depends(current_user)):
+    if user.role not in ("doctor", "admin"):
+        raise HTTPException(403, "MFA enrollment is required for privileged accounts only")
+    if user.mfa_enabled:
+        raise HTTPException(409, "MFA is already enabled")
+    secret = new_totp_secret()
+    user.mfa_secret = secret
+    user.mfa_last_counter = None
+    audit(session, user.id, "mfa.setup", "user", user.id, request.state.request_id)
+    session.commit()
+    label = quote(f"Amrutam:{user.email}")
+    uri = f"otpauth://totp/{label}?secret={secret}&issuer=Amrutam&algorithm=SHA1&digits=6&period=30"
+    return {"secret":secret,"otpauth_uri":uri,"enabled":False,"instruction":"Add this secret to an authenticator app, then verify a current code."}
+
+@app.post("/api/v1/auth/mfa/verify")
+def verify_mfa(body: MfaVerifyIn, request: Request, session: Session = Depends(db), user: User = Depends(current_user)):
+    if user.role not in ("doctor", "admin"):
+        raise HTTPException(403, "MFA is for privileged accounts")
+    if user.mfa_enabled:
+        raise HTTPException(409, "MFA is already enabled")
+    if not user.mfa_secret:
+        raise HTTPException(409, "Start MFA setup first")
+    counter = verify_totp(user.mfa_secret, body.totp_code)
+    if counter is None:
+        raise HTTPException(400, "Invalid or expired authenticator code")
+    user.mfa_enabled = True
+    user.mfa_last_counter = counter
+    audit(session, user.id, "mfa.enable", "user", user.id, request.state.request_id)
+    session.commit()
+    return {"enabled":True}
 
 @app.middleware("http")
 async def telemetry(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = request_id
     started = time.perf_counter()
-    if request.url.path in ("/api/v1/auth/login", "/api/v1/auth/register"):
+    protected_auth_paths = (
+        "/api/v1/auth/login", "/api/v1/auth/register",
+        "/api/v1/auth/mfa/setup", "/api/v1/auth/mfa/verify",
+    )
+    if request.url.path in protected_auth_paths:
         client_ip = request.client.host if request.client else "unknown"
         bucket = int(time.time() // 60)
         key = f"auth-rate:{client_ip}:{request.url.path}:{bucket}"
@@ -177,7 +262,8 @@ async def telemetry(request: Request, call_next):
             # Keep the API available if Redis is down; the gateway remains the distributed control.
             count = local_rate_hits.get(key, 0) + 1
             local_rate_hits[key] = count
-        if count > 20:
+        limit = 5 if request.url.path == "/api/v1/auth/mfa/verify" else 20
+        if count > limit:
             return Response('{"detail":"Too many authentication attempts"}', status_code=429, media_type="application/json", headers={"X-Request-ID":request_id,"Retry-After":"60"})
     response = await call_next(request)
     route = request.url.path if request.url.path.startswith("/health") else "/api/*"
@@ -195,6 +281,7 @@ async def telemetry(request: Request, call_next):
 def startup():
     if os.getenv("APP_ENV", "development") != "development" and (len(JWT_SECRET) < 32 or JWT_SECRET == "local-only-change-me-32-bytes-minimum!!"):
         raise RuntimeError("Production requires a managed JWT_SECRET of at least 32 characters")
+    require_production_keys()
     if os.getenv("APP_ENV", "development") == "development": Base.metadata.create_all(engine)
 
 @app.get("/health/live")
@@ -217,20 +304,27 @@ def metrics():
 @app.post("/api/v1/auth/register", status_code=201)
 def register(body: RegisterIn, request: Request, session: Session = Depends(db)):
     if body.role != "patient": raise HTTPException(403, "Self-registration is patient-only")
-    if session.scalar(select(User).where(User.email == body.email)): raise HTTPException(409, "Account already exists")
+    if session.scalar(select(User).where(User.email_lookup_hash == email_lookup_hash(str(body.email)))): raise HTTPException(409, "Account already exists")
     user = User(email=body.email, password_hash=bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode(), role="patient")
     session.add(user); session.flush(); audit(session,user.id,"user.register","user",user.id,request.state.request_id); session.commit()
     return {"id":user.id,"email":user.email,"role":user.role}
 
 @app.post("/api/v1/auth/login")
 def login(body: LoginIn, session: Session = Depends(db)):
-    user = session.scalar(select(User).where(User.email == body.email))
+    user = session.scalar(select(User).where(User.email_lookup_hash == email_lookup_hash(str(body.email))).with_for_update())
     if not user or not bcrypt.checkpw(body.password.encode(), user.password_hash.encode()): raise HTTPException(401, "Invalid credentials")
+    if user.role in ("doctor", "admin") and user.mfa_enabled:
+        if not body.totp_code or not user.mfa_secret: raise HTTPException(401, "Authenticator code required")
+        counter = verify_totp(user.mfa_secret, body.totp_code)
+        if counter is None or (user.mfa_last_counter is not None and counter <= user.mfa_last_counter):
+            raise HTTPException(401, "Invalid, expired, or reused authenticator code")
+        user.mfa_last_counter = counter
+        session.commit()
     return {"access_token":issue_token(user),"token_type":"bearer","expires_in":int(os.getenv("ACCESS_TOKEN_MINUTES","15"))*60}
 
 @app.post("/api/v1/admin/doctors", status_code=201)
 def create_doctor(body: DoctorIn, request: Request, session: Session = Depends(db), admin: User = Depends(roles("admin"))):
-    if session.scalar(select(User).where(User.email == body.email)): raise HTTPException(409,"Account already exists")
+    if session.scalar(select(User).where(User.email_lookup_hash == email_lookup_hash(str(body.email)))): raise HTTPException(409,"Account already exists")
     account = User(email=body.email,password_hash=bcrypt.hashpw(body.password.encode(),bcrypt.gensalt()).decode(),role="doctor"); session.add(account); session.flush()
     doctor = Doctor(user_id=account.id,display_name=body.display_name,specialty=body.specialty); session.add(doctor); session.flush()
     audit(session,admin.id,"doctor.create","doctor",doctor.id,request.state.request_id); session.commit()
@@ -278,6 +372,7 @@ def book(body: BookingIn, request: Request, session: Session=Depends(db), patien
 
 @app.get("/api/v1/consultations")
 def my_consultations(session: Session=Depends(db), user: User=Depends(current_user)):
+    require_privileged_mfa(user)
     stmt=select(Consultation)
     if user.role=="patient": stmt=stmt.where(Consultation.patient_id==user.id)
     elif user.role=="doctor":
@@ -287,6 +382,7 @@ def my_consultations(session: Session=Depends(db), user: User=Depends(current_us
 
 @app.patch("/api/v1/consultations/{consultation_id}/status")
 def set_status(consultation_id: str, body: StatusIn, request: Request, session: Session=Depends(db), actor: User=Depends(current_user)):
+    require_privileged_mfa(actor)
     transitions={"booked":{"in_progress","cancelled"},"in_progress":{"completed","cancelled"},"completed":set(),"cancelled":set()}
     consultation=session.scalar(select(Consultation).where(Consultation.id==consultation_id).with_for_update())
     if not consultation: raise HTTPException(404,"Consultation not found")
@@ -308,6 +404,7 @@ def prescribe(consultation_id: str, body: PrescriptionIn, request: Request, sess
 
 @app.get("/api/v1/consultations/{consultation_id}/prescriptions")
 def read_prescriptions(consultation_id: str, session: Session=Depends(db), actor: User=Depends(current_user)):
+    require_privileged_mfa(actor)
     consultation=session.get(Consultation,consultation_id); doctor=session.scalar(select(Doctor).where(Doctor.user_id==actor.id)) if actor.role=="doctor" else None
     if not consultation or (actor.role=="patient" and consultation.patient_id!=actor.id) or (actor.role=="doctor" and (not doctor or doctor.id!=consultation.doctor_id)): raise HTTPException(404,"Consultation not found")
     rows=session.scalars(select(Prescription).where(Prescription.consultation_id==consultation_id)).all()

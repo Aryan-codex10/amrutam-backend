@@ -13,3 +13,21 @@ jobs:
       - run: python -m compileall -q src tests
       - run: python -m unittest discover -s tests -v
       - run: pip install pip-audit && pip-audit -r requirements.txt
+      - name: Build API container
+        run: docker build --tag amrutam-api:${{ github.sha }} .
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - name: Format check
+        run: terraform fmt -check -recursive infra/terraform
+      - name: Initialize providers without configuring cloud state
+        working-directory: infra/terraform
+        run: terraform init -backend=false -input=false
+      - name: Validate infrastructure
+        working-directory: infra/terraform
+        run: terraform validate

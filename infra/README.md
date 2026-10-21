@@ -1,5 +1,7 @@
 # Infrastructure
 
-`../docker-compose.yml` is a local development stack only. Production needs managed PostgreSQL with private networking, HA/PITR and encryption; private Redis; gateway/WAF; workload identity; KMS; secret manager; and private metrics/OTel collection. The API container runs non-root, read-only, drops Linux capabilities, and exposes HTTP only to cluster ingress.
+- `../docker-compose.yml` runs the local development stack; it does not create cloud infrastructure.
+- `terraform/` contains an AWS reference deployment for the production shape: VPC, private API/data tiers, ECS Fargate, ALB/WAF, PostgreSQL, Redis, KMS/Secrets Manager, autoscaling, and CloudWatch observability.
+- The Terraform stack has not been deployed. See `terraform/README.md` for prerequisites, state protection, validation, and deployment cautions.
 
-Recommended IaC modules: network, database, cache, gateway, secrets, observability, backup. Add policy checks for public database ingress, unencrypted storage, wildcard CORS, missing retention, and unpinned production image tags.
+The API image runs non-root, read-only, drops Linux capabilities, and listens behind the ingress layer. Production schema changes require a separate versioned migration process.

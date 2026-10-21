@@ -13,8 +13,8 @@
 |---|---|---|
 | Public | Doctor display name, specialty, open slots | TLS, validation, short-TTL cache |
 | Internal | IDs, operational metrics | Access control, retention policy, avoid high-cardinality labels |
-| Personal | Email, phone, account metadata | TLS, encrypted storage/backups, least privilege, retention/deletion process |
-| Sensitive health | Visit reason, prescription, consultation link | KMS envelope encryption, strict row authorization, no logs/metrics, audited access |
+| Personal | Email, phone, account metadata | App-layer encryption for stored emails and profile contact fields, encrypted backups, least privilege |
+| Sensitive health | Visit reason, prescription, consultation link | App-layer authenticated encryption in the slice; production KMS key custody, strict row authorization, no logs/metrics |
 | Secrets | JWT signing key, DB/provider credentials | Secret manager, rotation, never source-control or bake into images |
 
 ## Threats and mitigations (OWASP-oriented)
@@ -22,10 +22,10 @@
 | Threat | Mitigation in slice | Production control/evidence |
 |---|---|---|
 | Broken access control / IDOR | Ownership and assigned-doctor checks; role dependency | Negative authorization tests for every resource; consider PostgreSQL RLS |
-| Credential stuffing / weak passwords | bcrypt, 12-character minimum, generic login error | MFA for privileged users, breached-password checks, adaptive throttles/alerts |
+| Credential stuffing / weak passwords | bcrypt, 12-character minimum, generic login error, throttled auth routes | TOTP MFA on privileged APIs, code replay rejection; breached-password checks and abuse alerts |
 | Injection | SQLAlchemy parameter binding, Pydantic validation | SAST/DAST and query review |
 | Replay/double booking | Required idempotency key, row lock, uniqueness constraints | Durable idempotency ledger, request hash and retention policy |
-| Sensitive data exposure | TLS expected at gateway, logs exclude request bodies | KMS envelope encryption, redaction tests, private metrics |
+| Sensitive data exposure | Fernet authenticated encryption for stored email/clinical text/MFA secrets; HMAC email lookup; logs exclude request bodies | Managed KMS/HSM custody, rotation jobs, redaction tests, private metrics |
 | Denial of service | Bounded pagination; gateway limits | Distributed token bucket by IP/account/route, load tests and autoscale caps |
 | Misconfiguration / secret leak | `.env` ignored; non-root read-only container | Managed secret injection, image scan, IaC policy checks |
 | Supply-chain compromise | Direct dependencies pinned | Hash lock, dependency scan, SBOM, signed images |
@@ -36,9 +36,10 @@
 
 - [ ] Enforce TLS 1.2+ end to end, HSTS at edge, strict CORS allowlist.
 - [ ] Replace demo JWT secret with KMS-backed signing; rotate keys with overlap.
-- [ ] Add MFA for privileged accounts, session revocation, refresh rotation, and account recovery safeguards.
+- [x] Require TOTP MFA for privileged API access; code reuse is rejected.
+- [ ] Add managed MFA recovery, session revocation, refresh rotation, and account recovery safeguards.
 - [ ] Use least-privilege DB roles; separate migration/runtime roles; add RLS where useful.
-- [ ] Encrypt PHI with envelope encryption, rotate data keys, and test key recovery.
+- [ ] Move the implemented field-level encryption keys into KMS/HSM, use envelope encryption, rotate data keys, and test key recovery.
 - [ ] Redact PHI from logs, traces, errors, metric labels, and support exports.
 - [ ] Apply WAF, per-account/IP quotas, payload limits, and abuse monitoring.
 - [ ] Verify authorization with negative tests; protect admin routes with step-up auth.

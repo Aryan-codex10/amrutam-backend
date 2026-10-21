@@ -5,3 +5,9 @@ __pycache__/
 .pytest_cache/
 .coverage
 local.db
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+crash.log

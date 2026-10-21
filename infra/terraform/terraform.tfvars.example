@@ -1,0 +1,17 @@
+aws_region           = "ap-south-1"
+project_name         = "amrutam"
+environment          = "staging"
+api_image_uri        = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/amrutam-api@sha256:REPLACE_WITH_IMAGE_DIGEST"
+acm_certificate_arn  = "arn:aws:acm:ap-south-1:123456789012:certificate/REPLACE_WITH_CERTIFICATE_ID"
+cors_origins         = "https://app.example.com"
+allowed_api_cidrs    = ["203.0.113.10/32"]
+api_desired_count    = 2
+api_max_count        = 6
+db_instance_class    = "db.t4g.medium"
+redis_node_type      = "cache.t4g.micro"
+
+# Pass sensitive values through a protected CI variable file or TF_VAR_...
+# environment variables; never commit real values to this file.
+# jwt_secret          = ""
+# phi_encryption_keys = ""
+# email_lookup_key    = ""

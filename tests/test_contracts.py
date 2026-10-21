@@ -12,8 +12,8 @@ class ContractTests(unittest.TestCase):
 
     def test_schema_booking_guards(self):
         text = (ROOT / "database/schema.sql").read_text().lower()
-        self.assertIn("unique(patient_id,idempotency_key)", text)
-        self.assertIn("slot_id uuid not null unique", text)
+        self.assertIn("unique(patient_id, idempotency_key)", text)
+        self.assertIn("slot_id varchar(36) not null unique", text)
         self.assertIn("audit_logs", text)
 
     def test_demo_sections(self):
